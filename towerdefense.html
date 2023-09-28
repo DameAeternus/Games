@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Title</title>
+  <meta charset="UTF-8" />
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="stylesheet" href="styles.css" />
+  <script>
+    // Game board size
+    const BOARD_SIZE = 10;
+
+    // Game configuration
+    const STARTING_LIVES = 10;
+    const STARTING_SCORE = 0;
+    const ENEMY_WAVES = [
+      { count: 5, speed: 1000 },
+      { count: 10, speed: 750 },
+      { count: 15, speed: 500 },
+      { count: 20, speed: 250 }
+    ];
+
+    // Cell types
+    const CELL_TYPES = {
+      EMPTY: 0,
+      PATH: 1,
+      TOWER: 2
+    };
+
+    // Tower types
+    const TOWER_TYPES = [
+      { name: 'Basic Tower', cost: 50, range: 3, power: 1, speed: 1000 },
+      { name: 'Sniper Tower', cost: 100, range: 5, power: 2, speed: 2000 },
+      { name: 'Splash Tower', cost: 150, range: 2, power: 2, speed: 1500 }
+    ];
+
+    // Game variables
+    let gameBoard = [];
+    let towerList = [];
+    let enemyList = [];
+    let gameRunning = false;
+    let gameScore = STARTING_SCORE;
+    let gameLives = STARTING_LIVES;
+    let waveNumber = 0;
+
+    // Get elements from the HTML document
+    const boardElement = document.getElementById('game-board');
+    const statusElement = document.getElementById('game-status');
+    const gameOverElement = document.getElementById('game-over');
+
+    // Initialize the game board
+    function initBoard() {
+      // Clear the board
+      gameBoard = [];
+      towerList = [];
+      enemyList = [];
+      waveNumber = 0;
+
+      // Generate an empty game board
+      for (let x = 0; x < BOARD_SIZE; x++) {
+        gameBoard.push([]);
+        for (let y = 0; y < BOARD_SIZE; y++) {
+          gameBoard[x].push(CELL_TYPES.EMPTY);
+          const cellElement = document.createElement('div');
+          cellElement.classList.add('cell');
+          cellElement.setAttribute('id', `cell-${x}-${y}`);
+          boardElement.appendChild(cellElement);
+        }
+      }
+
+      // Set the path on the game board
+      for (let y = 0; y < BOARD_SIZE; y++) {
+        gameBoard[0][y] = CELL_TYPES.PATH;
+        document.getElementById(`cell-0-${y}`).classList.add('path');
+      }
+      for (let x = 1; x < BOARD_SIZE; x++) {
+        gameBoard[x][BOARD_SIZE - 1] = CELL_TYPES.PATH;
+        document.getElementById(`cell-${x}-${BOARD_SIZE - 1}`).classList.add('path');
+      }
+      for (let y = BOARD_SIZE - 2; y >= 0; y--) {
+        gameBoard[BOARD_SIZE - 1][y] = CELL_TYPES.PATH;
+        document.getElementById(`cell-${BOARD_SIZE - 1}-${y}`).classList.add('path');
+      }
+      for (let x = BOARD_SIZE - 2; x >= 1; x--) {
+        gameBoard[x][0] = CELL_TYPES.PATH;
+        document.getElementById(`cell-${x}-0`).classList.add('path');
+      }
+    }
+
+    // Start a new game
+    function startGame() {
+      if (gameRunning) {
+        return;
+      }
+
+      // Reset game variables
+      gameRunning = true;
+      gameScore = STARTING_SCORE;
+      gameLives = STARTING_LIVES;
+      waveNumber = 0;
+
+      // Clear the board
+      initBoard();
+
+      // Set up the initial wave of enemies
+      spawnWave();
+    }
+
+    // Spawn a wave of enemies
+    function spawnWave() {
+      if (!gameRunning) {
+        return;
+      }
+
+      // Get the current wave
+      const wave = ENEMY_WAVES[waveNumber];
+
+      // Spawn the enemies in random positions at the start of the path
+      for (let i = 0; i < wave.count; i++) {
+        const enemy = {
+          x: 0,
+          y: Math.floor(Math.random() * BOARD_SIZE),
+          speed: wave.speed,
+          health: 1
+        };
+        enemyList.push(enemy);
+        const enemyElement = document.createElement('div');
+        enemyElement.classList.add('enemy');
+        enemyElement.setAttribute('id', `enemy-${i}`);
+        enemyElement.style.top = `${enemy.y * 50}px`;
+        enemyElement.style.left = '0px';
+        boardElement.appendChild(enemyElement);
+      }
+
+      // Increment the wave number
+      waveNumber++;
+      statusElement.textContent = `Wave ${waveNumber} of ${ENEMY_WAVES.length}`;
+
+      // Schedule the next wave
+      if (waveNumber < ENEMY_WAVES.length) {
+        setTimeout(spawnWave, 10000);
+      }
+    }
+
+    // Update the game state
+    function update() {
+      if (!gameRunning) {
+        return;
+      }
+
+      // Move enemies along the path
+      for (let i = 0; i < enemyList.length; i++) {
+        const enemy = enemyList[i];
+        const enemyElement = document.getElementById(`enemy-${i}`);
+        enemyElement.style.left = `${parseInt(enemyElement.style.left) + 50}px`;
+        if (parseInt(enemyElement.style.left) >= (BOARD_SIZE - 1) * 50) {
+          // Enemy has reached the end of the path
+          gameLives--;
+          if (gameLives <= 0) {
+            endGame(false);
+          } else {
+            enemyElement.remove();
+            enemyList.splice(i, 1);
+            i--;
+          }
+        }
+      }
+
+      // Check for collisions between towers and enemies
+      for (let i = 0; i < towerList.length; i++) {
+        const tower = towerList[i];
+        let targetEnemy = null;
+        let minDistance = Infinity;
+        for (let j = 0; j < enemyList.length; j++) {
+          const enemy = enemyList[j];
+          const dx = enemy.x - tower.x;
+          const dy = enemy.y - tower.y;
+          const distance = Math.sqrt(dx * dx + dy * dy);
+          if (distance <= tower.range && distance < minDistance) {
+            targetEnemy = enemy;
+            minDistance = distance;
+          }
+        }
+        if (targetEnemy) {
+          tower.cooldown = tower.speed;
+          targetEnemy.health -= tower.power;
+          if (targetEnemy.health <= 0) {
+            gameScore += 10;
+            document.getElementById(`enemy-${enemyList.indexOf(targetEnemy)}`).remove();
+            enemyList.splice(enemyList.indexOf(targetEnemy), 1);
+          }
+        } else {
+          tower.cooldown = Math.max(tower.cooldown - 50, 0);
+        }
+      }
+      // Update the game status
+      statusElement.textContent = Score: ${gameScore} Lives: ${gameLives};
+
+// Schedule the next update
+      setTimeout(update, 50);
+    }
+
+    // End the game
+    function endGame(win) {
+      gameRunning = false;
+      let message = '';
+      if (win) {
+        message = 'You win!';
+      } else {
+        message = 'You lose!';
+      }
+      message += Final score: ${gameScore};
+      statusElement.textContent = message;
+    }
+
+    // Initialize the game board
+    function initBoard() {
+      boardElement.innerHTML = '';
+      for (let i = 0; i < BOARD_SIZE; i++) {
+        for (let j = 0; j < BOARD_SIZE; j++) {
+          const cellElement = document.createElement('div');
+          cellElement.classList.add('cell');
+          cellElement.setAttribute('id', cell-${i}-${j});
+          cellElement.style.top = ${i * 50}px;
+          cellElement.style.left = ${j * 50}px;
+          cellElement.addEventListener('click', () => placeTower(i, j));
+          boardElement.appendChild(cellElement);
+        }
+      }
+    }
+
+    // Place a tower on the board
+    function placeTower(i, j) {
+      if (!gameRunning) {
+        return;
+      }
+      if (gameScore < TOWER_COST) {
+        return;
+      }
+      if (document.getElementById(tower-${i}-${j})) {
+        return;
+      }
+      const tower = {
+        x: j,
+        y: i,
+        range: TOWER_RANGE,
+        power: TOWER_POWER,
+        speed: TOWER_SPEED,
+        cooldown: 0
+      };
+      towerList.push(tower);
+      const towerElement = document.createElement('div');
+      towerElement.classList.add('tower');
+      towerElement.setAttribute('id', tower-${i}-${j});
+      towerElement.style.top = ${i * 50}px;
+      towerElement.style.left = ${j * 50}px;
+      boardElement.appendChild(towerElement);
+      gameScore -= TOWER_COST;
+    }
+
+    // Start the game when the page loads
+    window.addEventListener('load', () => {
+      startGame();
+      update();
+    });
+  </script>
+  <style>
+    :root {
+      --cell-size: 50px;
+      --tower-size: 40px;
+    }
+
+    /* Style the game board */
+    #game-board {
+      display: grid;
+      grid-template-columns: repeat(10, var(--cell-size));
+      grid-template-rows: repeat(10, var(--cell-size));
+      gap: 2px;
+      background-color: #9cb1d6;
+      padding: 10px;
+      border-radius: 5px;
+    }
+
+    /* Style the cells on the game board */
+    .cell {
+      background-color: #c7dce8;
+      border-radius: 5px;
+    }
+
+    /* Style the towers */
+    .tower {
+      width: var(--tower-size);
+      height: var(--tower-size);
+      background-color: #bda3d6;
+      border-radius: 50%;
+      position: absolute;
+      transform: translate(-50%, -50%);
+      z-index: 1;
+    }
+
+    /* Style the range circles around the towers */
+    .range {
+      border: 2px dashed #bda3d6;
+      border-radius: 50%;
+      position: absolute;
+      transform: translate(-50%, -50%);
+      z-index: 0;
+    }
+
+    /* Style the enemies */
+    .enemy {
+      width: var(--tower-size);
+      height: var(--tower-size);
+      background-color: #ff9999;
+      border-radius: 50%;
+      position: absolute;
+      transform: translate(-50%, -50%);
+      z-index: 1;
+    }
+
+    /* Style the game status display */
+    #game-status {
+      margin-top: 20px;
+      display: flex;
+      justify-content: space-between;
+      font-size: 20px;
+    }
+
+    /* Style the game over message */
+    #game-over {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      font-size: 50px;
+      color: red;
+      display: none;
+    }
+  </style>
+</head>
+<body>
+<div id="game-board">
+  <div id="cell-0-0" class="cell"></div>
+  <div id="cell-0-1" class="cell"></div>
+  <div id="cell-0-2" class="cell"></div>
+  <div id="cell-0-3" class="cell"></div>
+  <div id="cell-0-4" class="cell"></div>
+  <div id="cell-0-5" class="cell"></div>
+  <div id="cell-0-6" class="cell"></div>
+  <div id="cell-0-7" class="cell"></div>
+  <div id="cell-0-8" class="cell"></div>
+  <div id="cell-0-9" class="cell"></div>
+  <div id="cell-1-0" class="cell"></div>
+  <div id="cell-1-1" class="cell"></div>
+  <div id="cell-1-2" class="cell"></div>
+  <div id="cell-1-3" class="cell"></div>
+  <div id="cell-1-4" class="cell"></div>
+  <div id="cell-1-5" class="cell"></div>
+  <div id="cell-1-6" class="cell"></div>
+  <div id="cell-1-7" class="cell"></div>
+  <div id="cell-1-8" class="cell"></div>
+  <div id="cell-1-9" class="cell"></div>
+  <div id="cell-2-0" class="cell"></div>
+  <div id="cell-2-1" class="cell"></div>
+  <div id="cell-2-2" class="cell"></div>
+  <div id="cell-2-3" class="cell"></div>
+  <div id="cell-2-4" class="cell"></div>
+  <div id="cell-2-5" class="cell"></div>
+  <div id="cell-2-6" class="cell"></div>
+  <div id="cell-2-7" class="cell"></div>
+  <div id="cell-2-8" class="cell"></div>
+  <div id="cell-2-9" class="cell"></div>
+  <div id="cell-3-0" class="cell"></div>
+  <div id="cell-3-1" class="cell"></div>
+  <div id="cell-3-2" class="cell"></div>
+  <div id="cell-3-3" class="cell"></div>
+  <div id="cell-3-4" class="cell"></div>
+  <div id="cell-3-5" class="cell"></div>
+  <div id="cell-3-6" class="cell"></div>
+  <div id="cell-3-7" class="cell"></div>
+  <div id="cell-3-8" class="cell"></div>
+  <div id="cell-3-9" class="cell"></div>
+  <div id="cell-4-0" class="cell"></div>
+  <div id="cell-4-1" class="cell"></div>
+  <div id="cell-4-2" class="cell"></div>
+  <div id="cell-4-3" class="cell"></div>
+  <div id="cell-4-4" class="cell"></div>
+  <div id="cell-4-5" class="cell"></div>
+  <div id="cell-4-6" class="cell"></div>
+  <div id="cell-4-7" class="cell"></div>
+  <div id="cell-4-8" class="cell"></div>
+  <div id="cell-4-9" class="cell"></div>
+  <div id="cell-5-0" class="cell"></div>
+  <div id="cell-5-1" class="cell"></div>
+  <div id="cell-5-2" class="cell"></div>
+  <div id="cell-5-3" class="cell"></div>
+  <div id="cell-5-4" class="cell"></div>
+  <div id="cell-5-5" class="cell"></div>
+  <div id="cell-5-6" class="cell"></div>
+  <div id="cell-5-7" class="cell"></div>
+  <div id="cell-5-8" class="cell"></div>
+  <div id="cell-5-9" class="cell"></div>
+  <div id="cell-6-0" class="cell"></div>
+  <div id="cell-6-1" class="cell"></div>
+  <div id="cell-6-2" class="cell"></div>
+  <div id="cell-6-3" class="cell"></div>
+  <div id="cell-6-4" class="cell"></div>
+  <div id="cell-6-5" class="cell"></div>
+  <div id="cell-6-6" class="cell"></div>
+  <div id="cell-6-7" class="cell"></div>
+  <div id="cell-6-8" class="cell"></div>
+  <div id="cell-6-9" class="cell"></div>
+  <div id="cell-7-0" class="cell"></div>
+  <div id="cell-7-1" class="cell"></div>
+  <div id="cell-7-2" class="cell"></div>
+  <div id="cell-7-3" class="cell"></div>
+  <div id="cell-7-4" class="cell"></div>
+  <div id="cell-7-5" class="cell"></div>
+  <div id="cell-7-6" class="cell"></div>
+  <div id="cell-7-7" class="cell"></div>
+  <div id="cell-7-8" class="cell"></div>
+  <div id="cell-7-9" class="cell"></div>
+  <div id="cell-8-0" class="cell"></div>
+  <div id="cell-8-1" class="cell"></div>
+  <div id="cell-8-2" class="cell"></div>
+  <div id="cell-8-3" class="cell"></div>
+  <div id="cell-8-4" class="cell"></div>
+  <div id="cell-8-5" class="cell"></div>
+  <div id="cell-8-6" class="cell"></div>
+  <div id="cell-8-7" class="cell"></div>
+  <div id="cell-8-8" class="cell"></div>
+  <div id="cell-8-9" class="cell"></div>
+  <div id="cell-9-0" class="cell"></div>
+  <div id="cell-9-1" class="cell"></div>
+  <div id="cell-9-2" class="cell"></div>
+  <div id="cell-9-3" class="cell"></div>
+  <div id="cell-9-4" class="cell"></div>
+  <div id="cell-9-5" class="cell"></div>
+  <div id="cell-9-6" class="cell"></div>
+  <div id="cell-9-7" class="cell"></div>
+  <div id="cell-9-8" class="cell"></div>
+  <div id="cell-9-9" class="cell"></div>
+</div>
+</body>
+</html>
